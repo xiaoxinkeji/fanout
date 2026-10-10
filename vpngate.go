@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -84,7 +85,58 @@ func isResidential(hostName, ip string) bool {
 // 先直连；连不上或者拿回来的内容不对（被拦截、返回门户页）就换反代再试一次。
 // 返回的列表已按速度降序排列。
 func fetchNodes(timeout time.Duration) ([]Node, error) {
-	return fetchNodesWith(vpngateAPI, timeout)
+	switch nodeSource() {
+	case "pvl":
+		// 只用 PublicVPNList
+		return fetchPVLNodes(timeout)
+	case "both":
+		// 两个源合起来：VPN Gate 覆盖到的地区用它的，剩下的靠 PVL 补。
+		// 单个源失败不算致命，能拿到一个就继续。
+		nodes, err := fetchNodesWith(vpngateAPI, timeout)
+		pvl, pvlErr := fetchPVLNodes(timeout)
+		if err != nil && pvlErr != nil {
+			return nil, fmt.Errorf("两个源都失败了：VPN Gate(%v)；PublicVPNList(%v)", err, pvlErr)
+		}
+		if pvlErr != nil {
+			log.Printf("PublicVPNList 不可用（%v），只用 VPN Gate", pvlErr)
+			return nodes, nil
+		}
+		if err != nil {
+			log.Printf("VPN Gate 不可用（%v），只用 PublicVPNList", err)
+			return pvl, nil
+		}
+		return mergeNodes(nodes, pvl), nil
+	default:
+		return fetchNodesWith(vpngateAPI, timeout)
+	}
+}
+
+// mergeNodes 合并两个源的节点，按 IP 去重（同一个 IP 只留一份）。
+//
+// VPN Gate 优先：它的节点带实测 ping，信息比 PVL 全。
+func mergeNodes(a, b []Node) []Node {
+	out := make([]Node, 0, len(a)+len(b))
+	seen := map[string]bool{}
+	for _, n := range a {
+		if n.IP != "" {
+			if seen[n.IP] {
+				continue
+			}
+			seen[n.IP] = true
+		}
+		out = append(out, n)
+	}
+	for _, n := range b {
+		if n.IP != "" {
+			if seen[n.IP] {
+				continue
+			}
+			seen[n.IP] = true
+		}
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SpeedMbps > out[j].SpeedMbps })
+	return out
 }
 
 // fetchNodesWith 把直连地址拆成参数，方便测试两条分支。

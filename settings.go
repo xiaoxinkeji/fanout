@@ -26,6 +26,24 @@ type WebSettings struct {
 	// SubToken 是订阅地址里的口令。订阅要免登录才能被客户端拉取，
 	// 所以这串就是它唯一的门槛，等同于密码，不要外传。
 	SubToken string `json:"sub_token,omitempty"`
+	// NodeSource 决定节点从哪来：
+	//   ""/vpngate  只用 VPN Gate（默认，跟原版一致）
+	//   "pvl"       只用 PublicVPNList
+	//   "both"      两个一起用，按 IP 去重
+	NodeSource string `json:"node_source,omitempty"`
+}
+
+// nodeSource 返回当前节点来源，没配过就按 vpngate 处理。
+func nodeSource() string {
+	s := strings.ToLower(strings.TrimSpace(getWebSettings().NodeSource))
+	switch s {
+	case "pvl", "publicvpnlist":
+		return "pvl"
+	case "both", "all":
+		return "both"
+	default:
+		return "vpngate"
+	}
 }
 
 // residentialOnly 返回"只用家宽"是否开启。没配过时默认开：
@@ -41,6 +59,14 @@ func (s WebSettings) residentialOnly() bool {
 func residentialOnly() bool { return getWebSettings().residentialOnly() }
 
 // setResidentialOnly 改"只用家宽"开关并落盘。
+// setNodeSource 改节点来源。
+func setNodeSource(v string) error {
+	webSettingsMu.Lock()
+	webSettingsCur.NodeSource = strings.ToLower(strings.TrimSpace(v))
+	webSettingsMu.Unlock()
+	return saveWebSettings()
+}
+
 func setResidentialOnly(v bool) error {
 	webSettingsMu.Lock()
 	webSettingsCur.ResidentialOnly = &v

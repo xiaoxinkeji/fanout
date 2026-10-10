@@ -328,6 +328,7 @@ func apiSettings(auth *Auth, srv *webServer) http.HandlerFunc {
 		Port            *int    `json:"port"`             // 提供即改监听端口
 		ListenAddr      *string `json:"listen_addr"`      // 提供即改监听地址
 		ResidentialOnly *bool   `json:"residential_only"` // 提供即改"只用家宽"
+		NodeSource      *string `json:"node_source"`      // 提供即改节点来源：vpngate / pvl / both
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -355,6 +356,13 @@ func apiSettings(auth *Auth, srv *webServer) http.HandlerFunc {
 			// 顺序颠倒会把这个开关写回旧值。
 			if in.ResidentialOnly != nil {
 				if err := setResidentialOnly(*in.ResidentialOnly); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+					return
+				}
+			}
+			// 改节点来源。同样要在改端口之前：applyWebSettings 会整份覆盖。
+			if in.NodeSource != nil {
+				if err := setNodeSource(*in.NodeSource); err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 					return
 				}
