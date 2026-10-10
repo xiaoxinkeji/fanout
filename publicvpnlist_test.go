@@ -57,17 +57,17 @@ func TestPVLFieldCoercion(t *testing.T) {
 
 // 没有 IP 的节点建不了隧道，必须被过滤掉
 func TestPVLNode_SkipsNoIP(t *testing.T) {
-	if _, ok := pvlNode(pvlRow{HostName: "h", IP: "not-an-ip"}); ok {
+	if _, ok := pvlNode(pvlRow{Host: "h", IP: "not-an-ip"}); ok {
 		t.Error("非法 IP 应被跳过")
 	}
-	n, ok := pvlNode(pvlRow{HostName: "h1", IP: "1.2.3.4"})
+	n, ok := pvlNode(pvlRow{Host: "h1", IP: "1.2.3.4"})
 	if !ok {
 		t.Fatal("合法节点应保留")
 	}
 	if !n.Residential {
 		t.Error("PublicVPNList 的节点按家宽算")
 	}
-	// 没 hostname 时用 IP 顶上
+	// 没 host 时用 IP 顶上
 	n2, _ := pvlNode(pvlRow{IP: "5.6.7.8"})
 	if n2.HostName != "5.6.7.8" {
 		t.Errorf("缺主机名应拿 IP 顶: %q", n2.HostName)
@@ -85,6 +85,39 @@ func TestMergeNodes_DedupByIP(t *testing.T) {
 	// 快的排前面
 	if out[0].IP != "2.2.2.2" {
 		t.Errorf("应按速度排序，第一个是 %s", out[0].IP)
+	}
+}
+
+// country 字段是小写全名，要转成两字母代码才能按地区挑
+func TestPVLCountryCode(t *testing.T) {
+	if got := pvlCountryCode("south-korea", ""); got != "KR" {
+		t.Errorf("south-korea -> %q", got)
+	}
+	if got := pvlCountryCode("japan", "Japan"); got != "JP" {
+		t.Errorf("japan -> %q", got)
+	}
+	// 认不出的要有兜底，不能返回空导致节点被丢
+	if got := pvlCountryCode("somewhere", ""); got == "" {
+		t.Error("认不出的国家也要有兜底代码")
+	}
+	if got := pvlCountryCode("", "Japan"); got != "JP" {
+		t.Errorf("country 空时应退回 name: %q", got)
+	}
+}
+
+// 响应会被截断，末尾半个对象不能让整份解析失败
+func TestPVLParseRows_ToleratesTruncation(t *testing.T) {
+	full := `[{"id":1,"host":"1.1.1.1","ip":"1.1.1.1"},{"id":2,"host":"2.2.2.2","ip":"2.2.2.2"}]`
+	if got := pvlParseRows([]byte(full)); len(got) != 2 {
+		t.Errorf("完整应解析 2 条，得到 %d", len(got))
+	}
+	// 末尾截断：第二条只写了一半
+	cut := `[{"id":1,"host":"1.1.1.1","ip":"1.1.1.1"},{"id":2,"host":"2.2.`
+	if got := pvlParseRows([]byte(cut)); len(got) != 1 {
+		t.Errorf("截断时应保留前面完整的 1 条，得到 %d", len(got))
+	}
+	if got := pvlParseRows([]byte(`not json at all`)); got != nil {
+		t.Errorf("完全不是 JSON 应返回 nil，得到 %v", got)
 	}
 }
 

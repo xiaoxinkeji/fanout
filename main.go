@@ -43,6 +43,9 @@ func main() {
 	if err := os.MkdirAll(*workDir, 0700); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)
 	}
+	// 节点列表缓存：PublicVPNList 一次要拉 2 分多钟，必须落盘，
+	// 不然每次重启服务都要干等一场。
+	pvlCachePath = filepath.Join(*workDir, "pvl-cache.json")
 
 	// 先记下母机的网络命名空间，后面所有子进程都从这里起。
 	// 必须赶在建任何隧道之前，那之后线程就可能被带进隧道里了
